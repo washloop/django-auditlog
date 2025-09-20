@@ -481,19 +481,51 @@ class LogEntry(models.Model):
                 choices_dict = dict(field.base_field.choices)
 
             if choices_dict:
+                # Try to get the field type for special handling (e.g., DurationField)
+                try:
+                    field_type = field.get_internal_type()
+                except AttributeError:
+                    field_type = None
+
                 for value in values:
-                    try:
-                        value = ast.literal_eval(value)
-                        if type(value) is [].__class__:
-                            values_display.append(
-                                ", ".join(
-                                    [choices_dict.get(val, "None") for val in value]
+                    original_value = value
+                    # For DurationField with choices, try to convert string back to timedelta
+                    if field_type == "DurationField":
+                        # Try to match the string value to the stringified choices keys
+                        matched = False
+                        for k, v in choices_dict.items():
+                            # k is the actual value (timedelta), v is the display string
+                            # The value from auditlog is a string, so compare stringified k
+                            if str(k) == value:
+                                values_display.append(v)
+                                matched = True
+                                break
+                        if not matched:
+                            # fallback to just showing the value
+                            values_display.append(value)
+                    else:
+                        try:
+                            # Try to parse value as literal (for arrays, etc.)
+                            parsed_value = ast.literal_eval(value)
+                            if isinstance(parsed_value, list):
+                                values_display.append(
+                                    ", ".join(
+                                        [
+                                            choices_dict.get(val, "None")
+                                            for val in parsed_value
+                                        ]
+                                    )
                                 )
-                            )
-                        else:
+                            else:
+                                # Try to get display for parsed_value, fallback to string value
+                                values_display.append(
+                                    choices_dict.get(
+                                        parsed_value, choices_dict.get(value, "None")
+                                    )
+                                )
+                        except Exception:
+                            # fallback to string value lookup
                             values_display.append(choices_dict.get(value, "None"))
-                    except Exception:
-                        values_display.append(choices_dict.get(value, "None"))
             else:
                 try:
                     field_type = field.get_internal_type()
